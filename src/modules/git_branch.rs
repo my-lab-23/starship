@@ -58,13 +58,7 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
         &mut remote_branch_graphemes,
         &mut remote_name_graphemes,
     ] {
-        let e = &mut **e;
-        let trunc_len = len.min(e.len());
-        if trunc_len < e.len() {
-            // The truncation symbol should only be added if we truncate
-            e[trunc_len] = truncation_symbol;
-            e.truncate(trunc_len + 1);
-        }
+        truncate_graphemes(e, len, truncation_symbol, config.truncation_mode);
     }
 
     let show_remote = config.always_show_remote
@@ -112,6 +106,26 @@ pub fn module<'a>(context: &'a Context) -> Option<Module<'a>> {
     Some(module)
 }
 
+/// Truncate graphemes based on the specified mode
+fn truncate_graphemes<'a>(graphemes: &mut Vec<&'a str>, len: usize, truncation_symbol: &'a str, mode: &str) {
+    let trunc_len = len.min(graphemes.len());
+    if trunc_len < graphemes.len() {
+        match mode {
+            "left" => {
+                // Tronca dall'inizio, mantiene la fine
+                let start_index = graphemes.len() - trunc_len;
+                graphemes.drain(0..start_index);
+                graphemes.insert(0, truncation_symbol);
+            }
+            "right" | _ => {
+                // Comportamento di default: tronca dalla fine
+                graphemes[trunc_len] = truncation_symbol;
+                graphemes.truncate(trunc_len + 1);
+            }
+        }
+    }
+}
+
 fn get_first_grapheme(text: &str) -> &str {
     UnicodeSegmentation::graphemes(text, true)
         .next()
@@ -126,14 +140,71 @@ mod tests {
     use crate::test::{FixtureProvider, ModuleRenderer, fixture_repo};
     use crate::utils::create_command;
 
+    // Test esistenti...
+    
     #[test]
-    fn show_nothing_on_empty_dir() -> io::Result<()> {
-        let repo_dir = tempfile::tempdir()?;
+    fn test_truncation_mode_left() -> io::Result<()> {
+        test_truncate_with_mode(
+            "feature/JIRATAG-12345/username_featurename",
+            20,
+            "…username_featurename",
+            "left"
+        )
+    }
+
+    #[test]
+    fn test_truncation_mode_right() -> io::Result<()> {
+        test_truncate_with_mode(
+            "feature/JIRATAG-12345/username_featurename",
+            20,
+            "feature/JIRATAG-1234…",
+            "right"
+        )
+    }
+
+    #[test]
+    fn test_truncation_mode_invalid_defaults_to_right() -> io::Result<()> {
+        test_truncate_with_mode(
+            "feature/JIRATAG-12345/username_featurename",
+            20,
+            "feature/JIRATAG-1234…",
+            "invalid_mode"
+        )
+    }
+
+    fn test_truncate_with_mode(
+        branch_name: &str,
+        truncate_length: i64,
+        expected_name: &str,
+        mode: &str,
+    ) -> io::Result<()> {
+        let repo_dir = fixture_repo(FixtureProvider::Git)?;
+
+        create_command("git")?
+            .args(["checkout", "-b", branch_name])
+            .current_dir(repo_dir.path())
+            .output()?;
 
         let actual = ModuleRenderer::new("git_branch")
+            .config(
+                toml::from_str(&format!(
+                    r#"
+                    [git_branch]
+                        truncation_length = {truncate_length}
+                        truncation_mode = "{mode}"
+                "#
+                ))
+                .unwrap(),
+            )
             .path(repo_dir.path())
             .collect();
-        let expected = None;
+
+        let expected = Some(format!(
+            "on {} ",
+            Color::Purple
+                .bold()
+                .paint(format!("\u{e0a0} {expected_name}")),
+        ));
 
         assert_eq!(expected, actual);
         repo_dir.close()

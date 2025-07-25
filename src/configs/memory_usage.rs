@@ -12,6 +12,7 @@ pub struct MemoryConfig<'a> {
     pub format: &'a str,
     pub style: &'a str,
     pub symbol: &'a str,
+    pub unit: &'a str,
     pub disabled: bool,
 }
 
@@ -23,6 +24,7 @@ impl Default for MemoryConfig<'_> {
             style: "white bold dimmed",
             symbol: "🐏 ",
             disabled: true,
+            unit: "auto",
         }
     }
 }
